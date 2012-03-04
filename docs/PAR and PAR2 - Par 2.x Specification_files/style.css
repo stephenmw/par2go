@@ -1,0 +1,96 @@
+A:link {
+
+	color: #CC0000;
+
+	text-decoration: none;
+
+}
+
+
+
+A:visited {
+
+	color: #CC0000;
+
+	text-decoration: none;
+
+}
+
+
+
+A:active {
+
+	color: #CC0000;
+
+	text-decoration: none;
+
+}
+
+
+
+A:hover {
+
+	color: #000066;
+
+	text-decoration: none;
+
+}
+
+
+
+TD {
+
+	font-size: 12px;
+
+	font-family : Verdana;
+
+}
+
+
+
+P {
+
+	font-size: 12px;
+
+	font-family : Verdana;
+
+}
+
+
+
+TD.smaller {
+
+	font-size: 11px;
+
+	font-family : Verdana;
+
+	color : #000000;
+
+}
+
+
+
+P.smaller {
+
+	font-size: 11px;
+
+	font-family : Verdana;
+
+	color : #000000;
+
+}
+
+
+
+HR {
+
+	color : #767981;
+
+	height : 1px;
+
+}
+
+
+
+
+
