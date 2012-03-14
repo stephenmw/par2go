@@ -1,6 +1,8 @@
 package par2
 
 import (
+	"./extendedio"
+	"bufio"
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
@@ -34,8 +36,10 @@ type File struct {
 }
 
 func (r *RecoverySet) ReadRecoveryFile(file io.ReadSeeker) error {
+	n, _ := file.Seek(0, os.SEEK_CUR)
+	f := extendedio.NewOffsetReader(bufio.NewReader(file), n)
 	for {
-		err := r.readNextPacket(file)
+		err := r.readNextPacket(f)
 		if err == io.EOF {
 			return nil
 		} else if err != nil {
@@ -72,7 +76,7 @@ func seekNextPacket(file io.Reader) error {
 }
 
 // readNextPacket finds and then reads the next packet in file.
-func (r *RecoverySet) readNextPacket(file io.ReadSeeker) error {
+func (r *RecoverySet) readNextPacket(file extendedio.OffsetReader) error {
 	err := seekNextPacket(file)
 	if err != nil {
 		return err
@@ -90,6 +94,7 @@ func (r *RecoverySet) readNextPacket(file io.ReadSeeker) error {
 	// wrap file in a md5 calculator and limit the amount that is readable
 	hasher := md5.New()
 	pkt_reader := io.TeeReader(io.LimitReader(file, int64(pkt_size)-32), hasher)
+	pkt_reader = bufio.NewReader(pkt_reader)
 
 	var setid [16]byte
 	pkt_reader.Read(setid[:])
