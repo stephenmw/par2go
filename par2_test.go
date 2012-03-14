@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-var fileid, _ = hex.DecodeString("12")
 var main_test_answer = RecoverySet{
 	FileIds: [][16]byte{
 		[16]byte{166, 65, 188, 209, 94, 154, 93, 94, 177, 154, 9, 36, 214, 119, 123, 231},
