@@ -1,31 +1,45 @@
-package main
+package par2
 
 import (
-	"os"
-	"io"
 	"bytes"
-	"fmt"
 	"crypto/md5"
 	"encoding/binary"
+	"fmt"
+	"io"
+	"os"
 )
 
 var packet_seq = []byte("PAR2\000PKT")
 
-type Packet struct {
-	io.ReadSeeker
-}
+// PacketParsers are functions that parse the internal structure of packets and
+// return a RecoverySetUpdater. The function takes an io.Reader that contains
+// ONLY the internal packet data, no headers and no extra data.
+type PacketParser func(io.Reader) RecoverySetUpdater
+
+// RecoverySetUpdaters are closures that update a RecoverySet. They are
+// returned by PacketParsers.
+type RecoverySetUpdater func(*RecoverySet) error
 
 type RecoverySet struct {
-	slice_size uint64
-	num_files uint32
-	file_ids [][16]byte
+	SliceSize uint64
+	FileIds   [][16]byte
+	Files []File
+}
+
+type File struct {
+	Md5 [16]byte
+	Md5_16k [16]byte
+	Size uint64
+	Name string
 }
 
 func (r *RecoverySet) ReadRecoveryFile(file io.ReadSeeker) error {
 	for {
 		err := r.readNextPacket(file)
-		if err != nil {
+		if err == io.EOF {
 			return nil
+		} else if err != nil {
+			return err
 		}
 	}
 
@@ -35,7 +49,7 @@ func (r *RecoverySet) ReadRecoveryFile(file io.ReadSeeker) error {
 // seekNextPacket reads from file until it has read the magic packet sequence.
 // The error from the reader is returned. If no error is found, a packet was. 
 func seekNextPacket(file io.Reader) error {
-	for pos:=0; pos<len(packet_seq); {
+	for pos := 0; pos < len(packet_seq); {
 		var b [1]byte
 
 		read, err := file.Read(b[:1])
@@ -84,8 +98,15 @@ func (r *RecoverySet) readNextPacket(file io.ReadSeeker) error {
 	pkt_reader.Read(pkt_type)
 	pkt_type = bytes.TrimRight(pkt_type, "\000")
 
+	var parser PacketParser
+	switch string(pkt_type) {
+	case "PAR 2.0\000Main":
+		parser = parse_main_packet
+	}
+	updater := parser(pkt_reader)
+
 	// empty pkt_reader
-	var buffer [32*1024]byte
+	var buffer [1024]byte
 	for {
 		_, err := pkt_reader.Read(buffer[:])
 		if err != nil {
@@ -93,18 +114,14 @@ func (r *RecoverySet) readNextPacket(file io.ReadSeeker) error {
 		}
 	}
 
-	var hash_good bool
 	if bytes.Equal(md5sum[:], hasher.Sum([]byte{})) {
-		hash_good = true
+		err := updater(r)
+		return err
+	} else {
+		return nil
 	}
 
-	if hash_good {
-		fmt.Printf("%s good\n", string(md5sum[:]))
-	} else{
-		fmt.Printf("Set %s: %s %d\n", string(setid[:]), string(pkt_type), pkt_size)
-	}
-
-	return nil
+	panic("unreachable")
 }
 
 func main() {
