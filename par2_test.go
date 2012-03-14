@@ -4,12 +4,13 @@ import (
 	"testing"
 	"os"
 	"encoding/hex"
+	"bytes"
 )
 
 var fileid, _ = hex.DecodeString("12")
 var main_test_answer = RecoverySet {
-	FileIds: [][16]byte{[16]byte{},
-		//[16]byte("\xa6\x41\xbc\xd1\x5e\x9a\x5d\x5e\xb1\x9a\x09\x24\xd6\x77\x7b\xe7"),
+	FileIds: [][16]byte{
+		[16]byte{166,65,188,209,94,154,93,94,177,154,9,36,214,119,123,231},
 	},
 	SliceSize: 362644,
 }
@@ -28,11 +29,25 @@ func TestParseMainPacket(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(rs.FileIds) != len(main_test_answer.FileIds) {
-		t.Error("Length of FileIds incorrect")
-	}
-
 	if rs.SliceSize != main_test_answer.SliceSize {
 		t.Error("Slice size incorrect")
 	}
+
+	if len(rs.FileIds) != len(main_test_answer.FileIds) {
+		t.Errorf("Length of FileIds was %d, expected %d\n",
+			len(rs.FileIds),
+			len(main_test_answer.FileIds),
+		)
+	} else {
+		for i, _ := range rs.FileIds {
+			if !bytes.Equal(rs.FileIds[i][:], main_test_answer.FileIds[i][:]) {
+				t.Errorf("FileIds[%d] was %s, expected %s\n", i,
+					hex.EncodeToString(rs.FileIds[i][:]),
+					hex.EncodeToString(main_test_answer.FileIds[i][:]),
+				)
+			}
+		}
+	}
+
+	//t.Error(hex.EncodeToString(rs.FileIds[0][:]))
 }
