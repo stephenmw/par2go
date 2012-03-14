@@ -23,14 +23,14 @@ type RecoverySetUpdater func(*RecoverySet) error
 type RecoverySet struct {
 	SliceSize uint64
 	FileIds   [][16]byte
-	Files []File
+	Files     []File
 }
 
 type File struct {
-	Md5 [16]byte
+	Md5     [16]byte
 	Md5_16k [16]byte
-	Size uint64
-	Name string
+	Size    uint64
+	Name    string
 }
 
 func (r *RecoverySet) ReadRecoveryFile(file io.ReadSeeker) error {

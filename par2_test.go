@@ -1,16 +1,16 @@
 package par2
 
 import (
-	"testing"
-	"os"
-	"encoding/hex"
 	"bytes"
+	"encoding/hex"
+	"os"
+	"testing"
 )
 
 var fileid, _ = hex.DecodeString("12")
-var main_test_answer = RecoverySet {
+var main_test_answer = RecoverySet{
 	FileIds: [][16]byte{
-		[16]byte{166,65,188,209,94,154,93,94,177,154,9,36,214,119,123,231},
+		[16]byte{166, 65, 188, 209, 94, 154, 93, 94, 177, 154, 9, 36, 214, 119, 123, 231},
 	},
 	SliceSize: 362644,
 }

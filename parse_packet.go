@@ -20,7 +20,7 @@ func parse_main_packet(file io.Reader) RecoverySetUpdater {
 
 	// read file-ids
 	file_ids := make([][16]byte, 0, num_files)
-	for i:=uint32(0); i<num_files; i++ {
+	for i := uint32(0); i < num_files; i++ {
 		file_ids = file_ids[:len(file_ids)+1]
 		_, _ = file.Read(file_ids[len(file_ids)-1][:])
 	}
