@@ -94,7 +94,6 @@ func (r *RecoverySet) readNextPacket(file extendedio.OffsetReader) error {
 	// wrap file in a md5 calculator and limit the amount that is readable
 	hasher := md5.New()
 	pkt_reader := io.TeeReader(io.LimitReader(file, int64(pkt_size)-32), hasher)
-	pkt_reader = bufio.NewReader(pkt_reader)
 
 	var setid [16]byte
 	pkt_reader.Read(setid[:])
