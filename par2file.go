@@ -13,7 +13,10 @@ import (
 
 var packet_seq = []byte("PAR2\000PKT")
 
-var ErrUnexpectedEndOfPacket = errors.New("par2: unexpected end of packet")
+var (
+	ErrUnexpectedEndOfPacket = errors.New("par2: unexpected end of packet")
+	ErrUnknownPktType        = errors.New("par2: unknown packet type found")
+)
 
 // PacketParsers are functions that parse the internal structure of packets and
 // return a RecoverySetUpdater. The function takes an io.Reader that contains
@@ -31,6 +34,7 @@ type RecoverySet struct {
 }
 
 type File struct {
+	Id      [16]byte
 	Md5     [16]byte
 	Md5_16k [16]byte
 	Size    uint64
@@ -135,7 +139,13 @@ func (r *RecoverySet) readNextPacket(file extendedio.OffsetReader) (err error) {
 	switch string(pkt_type) {
 	case "PAR 2.0\000Main":
 		parser = parsepkt_Main
+	case "PAR 2.0\000FileDesc":
+		parser = parsepkt_FileDesc
 	}
+	if parser == nil {
+		return ErrUnknownPktType
+	}
+
 	updater, err := parser(pkt_reader)
 	if err != nil {
 		return err
