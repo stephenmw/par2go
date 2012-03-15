@@ -6,17 +6,19 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"io"
 	"os"
 )
 
 var packet_seq = []byte("PAR2\000PKT")
 
+var ErrUnexpectedEndOfPacket = errors.New("par2: unexpected end of packet")
+
 // PacketParsers are functions that parse the internal structure of packets and
 // return a RecoverySetUpdater. The function takes an io.Reader that contains
 // ONLY the internal packet data, no headers and no extra data.
-type PacketParser func(io.Reader) RecoverySetUpdater
+type PacketParser func(io.Reader) (RecoverySetUpdater, error)
 
 // RecoverySetUpdaters are closures that update a RecoverySet. They are
 // returned by PacketParsers.
@@ -76,38 +78,68 @@ func seekNextPacket(file io.Reader) error {
 }
 
 // readNextPacket finds and then reads the next packet in file.
-func (r *RecoverySet) readNextPacket(file extendedio.OffsetReader) error {
-	err := seekNextPacket(file)
+func (r *RecoverySet) readNextPacket(file extendedio.OffsetReader) (err error) {
+	var n int
+	_ = n
+
+	err = seekNextPacket(file)
 	if err != nil {
-		return err
+		return
 	}
 
 	// read packet size
 	var raw_pkt_size [8]byte
-	file.Read(raw_pkt_size[:])
+	n, err = file.Read(raw_pkt_size[:])
+	if err != nil {
+		if err == io.EOF {
+			err = ErrUnexpectedEndOfPacket
+		}
+		return
+	}
 	pkt_size := binary.LittleEndian.Uint64(raw_pkt_size[:])
 
 	// read md5 of packet
 	var md5sum [16]byte
-	file.Read(md5sum[:])
+	n, err = file.Read(md5sum[:])
+	if err != nil {
+		if err == io.EOF {
+			err = ErrUnexpectedEndOfPacket
+		}
+		return
+	}
 
 	// wrap file in a md5 calculator and limit the amount that is readable
 	hasher := md5.New()
 	pkt_reader := io.TeeReader(io.LimitReader(file, int64(pkt_size)-32), hasher)
 
 	var setid [16]byte
-	pkt_reader.Read(setid[:])
+	n, err = pkt_reader.Read(setid[:])
+	if err != nil {
+		if err == io.EOF {
+			err = ErrUnexpectedEndOfPacket
+		}
+		return
+	}
 
 	var pkt_type = make([]byte, 16)
-	pkt_reader.Read(pkt_type)
+	n, err = pkt_reader.Read(pkt_type)
+	if err != nil {
+		if err == io.EOF {
+			err = ErrUnexpectedEndOfPacket
+		}
+		return
+	}
 	pkt_type = bytes.TrimRight(pkt_type, "\000")
 
 	var parser PacketParser
 	switch string(pkt_type) {
 	case "PAR 2.0\000Main":
-		parser = parse_main_packet
+		parser = parsepkt_Main
 	}
-	updater := parser(pkt_reader)
+	updater, err := parser(pkt_reader)
+	if err != nil {
+		return err
+	}
 
 	// empty pkt_reader
 	var buffer [1024]byte
@@ -121,29 +153,7 @@ func (r *RecoverySet) readNextPacket(file extendedio.OffsetReader) error {
 	if bytes.Equal(md5sum[:], hasher.Sum([]byte{})) {
 		err := updater(r)
 		return err
-	} else {
-		return nil
 	}
 
-	panic("unreachable")
-}
-
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Please give a single par2 file to read.")
-		os.Exit(1)
-	}
-
-	file, err := os.Open(os.Args[1])
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	r := new(RecoverySet)
-	err = r.ReadRecoveryFile(file)
-
-	fmt.Println(err)
-	pos, _ := file.Seek(0, os.SEEK_CUR)
-	fmt.Println(pos)
+	return nil
 }

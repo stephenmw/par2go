@@ -5,32 +5,46 @@ import (
 	"io"
 )
 
-func parse_main_packet(file io.Reader) RecoverySetUpdater {
-	var errs []error
+func parsepkt_Main(file io.Reader) (updater RecoverySetUpdater, err error) {
+	var n int
+	_ = n
 
 	// read slice size
 	var raw_slice_size [8]byte
-	file.Read(raw_slice_size[:])
+	n, err = file.Read(raw_slice_size[:])
+	if err != nil {
+		if err == io.EOF {
+			err = ErrUnexpectedEndOfPacket
+		}
+		return
+	}
 	slice_size := binary.LittleEndian.Uint64(raw_slice_size[:])
 
 	// read number of files in recovery set.
 	var raw_num_files [4]byte
-	file.Read(raw_num_files[:])
+	n, err = file.Read(raw_num_files[:])
+	if err != nil {
+		if err == io.EOF {
+			err = ErrUnexpectedEndOfPacket
+		}
+		return
+	}
 	num_files := binary.LittleEndian.Uint32(raw_num_files[:])
 
 	// read file-ids
 	file_ids := make([][16]byte, 0, num_files)
 	for i := uint32(0); i < num_files; i++ {
 		file_ids = file_ids[:len(file_ids)+1]
-		_, _ = file.Read(file_ids[len(file_ids)-1][:])
+		n, err = file.Read(file_ids[len(file_ids)-1][:])
+		if err != nil {
+			if err == io.EOF {
+				err = ErrUnexpectedEndOfPacket
+			}
+			return
+		}
 	}
 
-	var ret RecoverySetUpdater = func(r *RecoverySet) error {
-		if len(errs) > 0 {
-			// if we ran into errors, we should not be updating r
-			return errs[0]
-		}
-
+	updater = func(r *RecoverySet) error {
 		// apply actual changes
 		r.FileIds = file_ids
 		r.SliceSize = slice_size
@@ -38,5 +52,5 @@ func parse_main_packet(file io.Reader) RecoverySetUpdater {
 		return nil
 	}
 
-	return ret
+	return
 }

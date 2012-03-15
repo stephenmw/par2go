@@ -47,6 +47,4 @@ func TestParseMainPacket(t *testing.T) {
 			}
 		}
 	}
-
-	//t.Error(hex.EncodeToString(rs.FileIds[0][:]))
 }
