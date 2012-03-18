@@ -1,7 +1,7 @@
 package par2
 
 import (
-	"./extendedio"
+	"./iotools"
 	"bufio"
 	"bytes"
 	"crypto/md5"
@@ -43,7 +43,7 @@ type File struct {
 
 func (r *RecoverySet) ReadRecoveryFile(file io.ReadSeeker) error {
 	n, _ := file.Seek(0, os.SEEK_CUR)
-	f := extendedio.NewOffsetReader(bufio.NewReader(file), n)
+	f := iotools.NewOffsetReader(bufio.NewReader(file), n)
 	for {
 		err := r.readNextPacket(f)
 		if err == io.EOF {
@@ -82,7 +82,7 @@ func seekNextPacket(file io.Reader) error {
 }
 
 // readNextPacket finds and then reads the next packet in file.
-func (r *RecoverySet) readNextPacket(file extendedio.OffsetReader) (err error) {
+func (r *RecoverySet) readNextPacket(file iotools.OffsetReader) (err error) {
 	var n int
 	_ = n
 
