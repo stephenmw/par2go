@@ -1,4 +1,4 @@
-package extendedio
+package iotools
 
 import (
 	"io"
