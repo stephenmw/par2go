@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"io/ioutil"
 	"os"
 )
 
@@ -34,11 +35,13 @@ type RecoverySet struct {
 }
 
 type File struct {
-	Id      [16]byte
-	Md5     [16]byte
-	Md5_16k [16]byte
-	Size    uint64
-	Name    string
+	Id         [16]byte
+	Md5        [16]byte
+	Md5_16k    [16]byte
+	Size       uint64
+	Name       string
+	SliceMd5   [][16]byte
+	SliceCrc32 [][4]byte
 }
 
 func (r *RecoverySet) ReadRecoveryFile(file io.ReadSeeker) error {
@@ -83,9 +86,6 @@ func seekNextPacket(file io.Reader) error {
 
 // readNextPacket finds and then reads the next packet in file.
 func (r *RecoverySet) readNextPacket(file iotools.OffsetReader) (err error) {
-	var n int
-	_ = n
-
 	err = seekNextPacket(file)
 	if err != nil {
 		return
@@ -93,7 +93,7 @@ func (r *RecoverySet) readNextPacket(file iotools.OffsetReader) (err error) {
 
 	// read packet size
 	var raw_pkt_size [8]byte
-	n, err = file.Read(raw_pkt_size[:])
+	_, err = io.ReadFull(file, raw_pkt_size[:])
 	if err != nil {
 		if err == io.EOF {
 			err = ErrUnexpectedEndOfPacket
@@ -104,7 +104,7 @@ func (r *RecoverySet) readNextPacket(file iotools.OffsetReader) (err error) {
 
 	// read md5 of packet
 	var md5sum [16]byte
-	n, err = file.Read(md5sum[:])
+	_, err = io.ReadFull(file, md5sum[:])
 	if err != nil {
 		if err == io.EOF {
 			err = ErrUnexpectedEndOfPacket
@@ -117,18 +117,18 @@ func (r *RecoverySet) readNextPacket(file iotools.OffsetReader) (err error) {
 	pkt_reader := io.TeeReader(io.LimitReader(file, int64(pkt_size)-32), hasher)
 
 	var setid [16]byte
-	n, err = pkt_reader.Read(setid[:])
+	_, err = io.ReadFull(pkt_reader, setid[:])
 	if err != nil {
-		if err == io.EOF {
+		if err == io.ErrUnexpectedEOF {
 			err = ErrUnexpectedEndOfPacket
 		}
 		return
 	}
 
 	var pkt_type = make([]byte, 16)
-	n, err = pkt_reader.Read(pkt_type)
+	_, err = io.ReadFull(pkt_reader, pkt_type)
 	if err != nil {
-		if err == io.EOF {
+		if err == io.ErrUnexpectedEOF {
 			err = ErrUnexpectedEndOfPacket
 		}
 		return
@@ -148,17 +148,14 @@ func (r *RecoverySet) readNextPacket(file iotools.OffsetReader) (err error) {
 
 	updater, err := parser(pkt_reader)
 	if err != nil {
+		if err == io.ErrUnexpectedEOF {
+			err = ErrUnexpectedEndOfPacket
+		}
 		return err
 	}
 
 	// empty pkt_reader
-	var buffer [1024]byte
-	for {
-		_, err := pkt_reader.Read(buffer[:])
-		if err != nil {
-			break
-		}
-	}
+	io.Copy(ioutil.Discard, pkt_reader)
 
 	if bytes.Equal(md5sum[:], hasher.Sum([]byte{})) {
 		err := updater(r)

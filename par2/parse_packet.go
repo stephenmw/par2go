@@ -9,27 +9,18 @@ import (
 const MAX_FILENAME_LEN = 128
 
 func parsepkt_Main(file io.Reader) (updater RecoverySetUpdater, err error) {
-	var n int
-	_ = n
-
 	// read slice size
 	var raw_slice_size [8]byte
-	n, err = file.Read(raw_slice_size[:])
+	_, err = io.ReadFull(file, raw_slice_size[:])
 	if err != nil {
-		if err == io.EOF {
-			err = ErrUnexpectedEndOfPacket
-		}
 		return
 	}
 	slice_size := binary.LittleEndian.Uint64(raw_slice_size[:])
 
 	// read number of files in recovery set.
 	var raw_num_files [4]byte
-	n, err = file.Read(raw_num_files[:])
+	_, err = io.ReadFull(file, raw_num_files[:])
 	if err != nil {
-		if err == io.EOF {
-			err = ErrUnexpectedEndOfPacket
-		}
 		return
 	}
 	num_files := binary.LittleEndian.Uint32(raw_num_files[:])
@@ -38,11 +29,8 @@ func parsepkt_Main(file io.Reader) (updater RecoverySetUpdater, err error) {
 	file_ids := make([][16]byte, 0, num_files)
 	for i := uint32(0); i < num_files; i++ {
 		file_ids = file_ids[:len(file_ids)+1]
-		n, err = file.Read(file_ids[len(file_ids)-1][:])
+		_, err = io.ReadFull(file, file_ids[len(file_ids)-1][:])
 		if err != nil {
-			if err == io.EOF {
-				err = ErrUnexpectedEndOfPacket
-			}
 			return
 		}
 	}
@@ -59,48 +47,33 @@ func parsepkt_Main(file io.Reader) (updater RecoverySetUpdater, err error) {
 }
 
 func parsepkt_FileDesc(file io.Reader) (updater RecoverySetUpdater, err error) {
-	var n int
-	_ = n
-
 	ret := File{}
 
-	n, err = file.Read(ret.Id[:])
+	_, err = io.ReadFull(file, ret.Id[:])
 	if err != nil {
-		if err == io.EOF {
-			err = ErrUnexpectedEndOfPacket
-		}
 		return
 	}
 
-	n, err = file.Read(ret.Md5[:])
+	_, err = io.ReadFull(file, ret.Md5[:])
 	if err != nil {
-		if err == io.EOF {
-			err = ErrUnexpectedEndOfPacket
-		}
 		return
 	}
 
-	n, err = file.Read(ret.Md5_16k[:])
+	_, err = io.ReadFull(file, ret.Md5_16k[:])
 	if err != nil {
-		if err == io.EOF {
-			err = ErrUnexpectedEndOfPacket
-		}
 		return
 	}
 
 	// read file size
 	var raw_file_size [8]byte
-	n, err = file.Read(raw_file_size[:])
+	_, err = io.ReadFull(file, raw_file_size[:])
 	if err != nil {
-		if err == io.EOF {
-			err = ErrUnexpectedEndOfPacket
-		}
 		return
 	}
 	ret.Size = binary.LittleEndian.Uint64(raw_file_size[:])
 
 	var fn_bytes = make([]byte, MAX_FILENAME_LEN)
-	n, err = file.Read(fn_bytes)
+	n, err := io.ReadAtLeast(file, fn_bytes, 1)
 	if err != nil {
 		return
 	}
