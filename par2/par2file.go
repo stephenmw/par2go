@@ -1,12 +1,12 @@
 package par2
 
 import (
-	"./iotools"
 	"bufio"
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
 	"errors"
+	"github.com/stephenmw/par2go/par2/iotools"
 	"io"
 	"io/ioutil"
 	"os"
