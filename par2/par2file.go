@@ -1,15 +1,14 @@
 package par2
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
 	"errors"
-	"github.com/stephenmw/par2go/par2/iotools"
 	"io"
 	"io/ioutil"
 	"os"
+	"sort"
 )
 
 var packet_seq = []byte("PAR2\000PKT")
@@ -17,38 +16,50 @@ var packet_seq = []byte("PAR2\000PKT")
 var (
 	ErrUnexpectedEndOfPacket = errors.New("par2: unexpected end of packet")
 	ErrUnknownPktType        = errors.New("par2: unknown packet type found")
+	ErrMismatchedRecoverySet = errors.New("par2: packet for unknown recovery set found")
 )
 
 // PacketParsers are functions that parse the internal structure of packets and
 // return a RecoverySetUpdater. The function takes an io.Reader that contains
 // ONLY the internal packet data, no headers and no extra data.
-type PacketParser func(io.Reader) (RecoverySetUpdater, error)
+type PacketParser func(io.Reader, *os.File, int64) (RecoverySetUpdater, error)
 
 // RecoverySetUpdaters are closures that update a RecoverySet. They are
 // returned by PacketParsers.
 type RecoverySetUpdater func(*RecoverySet) error
 
 type RecoverySet struct {
-	SliceSize uint64
+	Id        [16]byte
+	SliceSize int64
 	FileIds   [][16]byte
 	Files     []File
+	IFSC      []FileCheckSums
 }
 
 type File struct {
-	Id         [16]byte
-	Md5        [16]byte
-	Md5_16k    [16]byte
-	Size       uint64
-	Name       string
-	SliceMd5   [][16]byte
-	SliceCrc32 [][4]byte
+	Id      [16]byte
+	Md5     [16]byte
+	Md5_16k [16]byte
+	Size    int64
+	Name    string
 }
 
-func (r *RecoverySet) ReadRecoveryFile(file io.ReadSeeker) error {
-	n, _ := file.Seek(0, os.SEEK_CUR)
-	f := iotools.NewOffsetReader(bufio.NewReader(file), n)
+type FileCheckSums struct {
+	FileId [16]byte
+	Slices []SliceChecksum
+}
+
+type SliceChecksum struct {
+	Md5   [16]byte
+	Crc32 [4]byte
+}
+
+// ReadRecoveryFile parses a par2 file.
+func (r *RecoverySet) ReadRecoveryFile(file *os.File) error {
+	defer r.sort()
+
 	for {
-		err := r.readNextPacket(f)
+		err := r.readNextPacket(file)
 		if err == io.EOF {
 			return nil
 		} else if err != nil {
@@ -56,7 +67,7 @@ func (r *RecoverySet) ReadRecoveryFile(file io.ReadSeeker) error {
 		}
 	}
 
-	return nil
+	panic("unreachable")
 }
 
 // seekNextPacket reads from file until it has read the magic packet sequence.
@@ -85,68 +96,54 @@ func seekNextPacket(file io.Reader) error {
 }
 
 // readNextPacket finds and then reads the next packet in file.
-func (r *RecoverySet) readNextPacket(file iotools.OffsetReader) (err error) {
+func (r *RecoverySet) readNextPacket(file *os.File) (err error) {
 	err = seekNextPacket(file)
 	if err != nil {
 		return
 	}
 
-	// read packet size
-	var raw_pkt_size [8]byte
-	_, err = io.ReadFull(file, raw_pkt_size[:])
+	raw := make([]byte, 56)
+	_, err = io.ReadFull(file, raw)
 	if err != nil {
 		if err == io.EOF {
 			err = ErrUnexpectedEndOfPacket
 		}
 		return
 	}
-	pkt_size := binary.LittleEndian.Uint64(raw_pkt_size[:])
 
-	// read md5 of packet
-	var md5sum [16]byte
-	_, err = io.ReadFull(file, md5sum[:])
-	if err != nil {
-		if err == io.EOF {
-			err = ErrUnexpectedEndOfPacket
-		}
-		return
+	packetSize := int64(binary.LittleEndian.Uint64(raw[0:8]))
+	packetMd5 := raw[8:24]
+	recoverySetId := raw[24:40]
+	packetType := string(bytes.TrimRight(raw[40:56], "\000"))
+
+	if r.Id == [16]byte{} {
+		copy(r.Id[:], recoverySetId[:])
+	}
+
+	if !bytes.Equal(recoverySetId, r.Id[:]) {
+		return ErrMismatchedRecoverySet
 	}
 
 	// wrap file in a md5 calculator and limit the amount that is readable
 	hasher := md5.New()
-	pkt_reader := io.TeeReader(io.LimitReader(file, int64(pkt_size)-32), hasher)
-
-	var setid [16]byte
-	_, err = io.ReadFull(pkt_reader, setid[:])
-	if err != nil {
-		if err == io.ErrUnexpectedEOF {
-			err = ErrUnexpectedEndOfPacket
-		}
-		return
-	}
-
-	var pkt_type = make([]byte, 16)
-	_, err = io.ReadFull(pkt_reader, pkt_type)
-	if err != nil {
-		if err == io.ErrUnexpectedEOF {
-			err = ErrUnexpectedEndOfPacket
-		}
-		return
-	}
-	pkt_type = bytes.TrimRight(pkt_type, "\000")
+	hasher.Write(raw[24:]) // hash starts at beginning of recoverysetid
+	pkt_reader := io.TeeReader(io.LimitReader(file, int64(packetSize)-64), hasher)
 
 	var parser PacketParser
-	switch string(pkt_type) {
+	switch packetType {
 	case "PAR 2.0\000Main":
 		parser = parsepkt_Main
 	case "PAR 2.0\000FileDesc":
 		parser = parsepkt_FileDesc
+	case "PAR 2.0\000IFSC":
+		parser = parsepkt_IFSC
 	}
 	if parser == nil {
 		return ErrUnknownPktType
 	}
 
-	updater, err := parser(pkt_reader)
+	updater, err := parser(pkt_reader, file, packetSize)
+
 	if err != nil {
 		if err == io.ErrUnexpectedEOF {
 			err = ErrUnexpectedEndOfPacket
@@ -157,10 +154,15 @@ func (r *RecoverySet) readNextPacket(file iotools.OffsetReader) (err error) {
 	// empty pkt_reader
 	io.Copy(ioutil.Discard, pkt_reader)
 
-	if bytes.Equal(md5sum[:], hasher.Sum([]byte{})) {
-		err := updater(r)
-		return err
+	if bytes.Equal(packetMd5, hasher.Sum([]byte{})) {
+		err = updater(r)
+		return
 	}
 
 	return nil
+}
+
+func (r *RecoverySet) sort() {
+	sort.Sort(fileById(r.Files))
+	sort.Sort(ifscByFileId(r.IFSC))
 }

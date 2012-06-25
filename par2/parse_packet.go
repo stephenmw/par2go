@@ -4,32 +4,27 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"os"
 )
 
 const MAX_FILENAME_LEN = 128
 
-func parsepkt_Main(file io.Reader) (updater RecoverySetUpdater, err error) {
+func parsepkt_Main(reader io.Reader, file *os.File, length int64) (updater RecoverySetUpdater, err error) {
 	// read slice size
-	var raw_slice_size [8]byte
-	_, err = io.ReadFull(file, raw_slice_size[:])
+	raw := make([]byte, 12)
+	_, err = io.ReadFull(reader, raw[:])
 	if err != nil {
 		return
 	}
-	slice_size := binary.LittleEndian.Uint64(raw_slice_size[:])
 
-	// read number of files in recovery set.
-	var raw_num_files [4]byte
-	_, err = io.ReadFull(file, raw_num_files[:])
-	if err != nil {
-		return
-	}
-	num_files := binary.LittleEndian.Uint32(raw_num_files[:])
+	sliceSize := int64(binary.LittleEndian.Uint64(raw[:8]))
+	numFiles := binary.LittleEndian.Uint32(raw[8:12])
 
 	// read file-ids
-	file_ids := make([][16]byte, 0, num_files)
-	for i := uint32(0); i < num_files; i++ {
+	file_ids := make([][16]byte, 0, numFiles)
+	for i := uint32(0); i < numFiles; i++ {
 		file_ids = file_ids[:len(file_ids)+1]
-		_, err = io.ReadFull(file, file_ids[len(file_ids)-1][:])
+		_, err = io.ReadFull(reader, file_ids[len(file_ids)-1][:])
 		if err != nil {
 			return
 		}
@@ -38,7 +33,7 @@ func parsepkt_Main(file io.Reader) (updater RecoverySetUpdater, err error) {
 	updater = func(r *RecoverySet) error {
 		// apply actual changes
 		r.FileIds = file_ids
-		r.SliceSize = slice_size
+		r.SliceSize = sliceSize
 
 		return nil
 	}
@@ -46,34 +41,34 @@ func parsepkt_Main(file io.Reader) (updater RecoverySetUpdater, err error) {
 	return
 }
 
-func parsepkt_FileDesc(file io.Reader) (updater RecoverySetUpdater, err error) {
+func parsepkt_FileDesc(reader io.Reader, file *os.File, length int64) (updater RecoverySetUpdater, err error) {
 	ret := File{}
 
-	_, err = io.ReadFull(file, ret.Id[:])
+	_, err = io.ReadFull(reader, ret.Id[:])
 	if err != nil {
 		return
 	}
 
-	_, err = io.ReadFull(file, ret.Md5[:])
+	_, err = io.ReadFull(reader, ret.Md5[:])
 	if err != nil {
 		return
 	}
 
-	_, err = io.ReadFull(file, ret.Md5_16k[:])
+	_, err = io.ReadFull(reader, ret.Md5_16k[:])
 	if err != nil {
 		return
 	}
 
 	// read file size
-	var raw_file_size [8]byte
-	_, err = io.ReadFull(file, raw_file_size[:])
+	var fileSize [8]byte
+	_, err = io.ReadFull(reader, fileSize[:])
 	if err != nil {
 		return
 	}
-	ret.Size = binary.LittleEndian.Uint64(raw_file_size[:])
+	ret.Size = int64(binary.LittleEndian.Uint64(fileSize[:]))
 
 	var fn_bytes = make([]byte, MAX_FILENAME_LEN)
-	n, err := io.ReadAtLeast(file, fn_bytes, 1)
+	n, err := io.ReadAtLeast(reader, fn_bytes, 1)
 	if err != nil {
 		return
 	}
@@ -89,6 +84,51 @@ func parsepkt_FileDesc(file io.Reader) (updater RecoverySetUpdater, err error) {
 
 		// Apply changes
 		r.Files = append(r.Files, ret)
+
+		return nil
+	}
+
+	return
+}
+
+func parsepkt_IFSC(reader io.Reader, file *os.File, length int64) (updater RecoverySetUpdater, err error) {
+	var ret FileCheckSums
+
+	// Read file id
+	_, err = io.ReadFull(reader, ret.FileId[:])
+	if err != nil {
+		return
+	}
+
+	// Read Checksums
+	var raw [20]byte
+	for {
+		n, err := io.ReadFull(reader, raw[:])
+		if err != nil {
+			if n == 0 {
+				break
+			} else {
+				return nil, err
+			}
+		}
+
+		var s SliceChecksum
+		copy(s.Md5[:16], raw[0:16])
+		copy(s.Crc32[:4], raw[16:20])
+
+		ret.Slices = append(ret.Slices, s)
+	}
+
+	updater = func(r *RecoverySet) error {
+		// See if file was parsed already. If it was, ignore new data.
+		for _, f := range r.IFSC {
+			if bytes.Equal(f.FileId[:], ret.FileId[:]) {
+				return nil
+			}
+		}
+
+		// Apply changes
+		r.IFSC = append(r.IFSC, ret)
 
 		return nil
 	}

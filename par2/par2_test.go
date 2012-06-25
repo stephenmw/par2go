@@ -79,7 +79,7 @@ func TestParseFileDescPacket(t *testing.T) {
 	}
 
 	if len(rs.Files) != len(ans_FileDescPkt.Files) {
-		t.Fatal("Length of Files slice was %d, expected %d\n",
+		t.Errorf("Length of Files slice was %d, expected %d\n",
 			len(rs.Files),
 			len(ans_FileDescPkt.Files),
 		)
