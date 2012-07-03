@@ -83,7 +83,7 @@ func parsepkt_FileDesc(reader io.Reader, file *os.File, length int64) (updater R
 		}
 
 		// Apply changes
-		r.Files = append(r.Files, ret)
+		r.Files = append(r.Files, &ret)
 
 		return nil
 	}
@@ -128,7 +128,7 @@ func parsepkt_IFSC(reader io.Reader, file *os.File, length int64) (updater Recov
 		}
 
 		// Apply changes
-		r.IFSC = append(r.IFSC, ret)
+		r.IFSC = append(r.IFSC, &ret)
 
 		return nil
 	}

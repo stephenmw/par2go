@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -15,7 +17,7 @@ var packet_seq = []byte("PAR2\000PKT")
 
 var (
 	ErrUnexpectedEndOfPacket = errors.New("par2: unexpected end of packet")
-	ErrUnknownPktType        = errors.New("par2: unknown packet type found")
+	ErrUnknownPktType        = errors.New("par2: packet of unknown type found")
 	ErrMismatchedRecoverySet = errors.New("par2: packet for unknown recovery set found")
 )
 
@@ -32,8 +34,8 @@ type RecoverySet struct {
 	Id        [16]byte
 	SliceSize int64
 	FileIds   [][16]byte
-	Files     []File
-	IFSC      []FileCheckSums
+	Files     []*File
+	IFSC      []*FileCheckSums
 }
 
 type File struct {
@@ -42,6 +44,47 @@ type File struct {
 	Md5_16k [16]byte
 	Size    int64
 	Name    string
+
+	// actual data of file
+	Fp io.ReaderAt
+}
+
+// CheckFile returns a list of corrupted par2 slices in a file. The first slice
+// is zero
+func (r RecoverySet) CheckFile(id [16]byte) (corrupt []int, err error) {
+	f := r.fileById(id)
+	c := r.ifscByFileId(id)
+	if f == nil || c == nil {
+		panic("better error handling needed")
+	}
+	slices := c.Slices
+
+	hasher := md5.New()
+	sum := make([]byte, md5.Size)
+
+	for i, checksum := range slices {
+		hasher.Reset()
+		slice := io.NewSectionReader(f.Fp, r.SliceSize*int64(i), r.SliceSize)
+		n, err := io.Copy(hasher, slice)
+		if err != nil {
+			return corrupt, err
+		}
+
+		zero := []byte{0}
+		for i := int64(0); i < r.SliceSize-n; i++ {
+			hasher.Write(zero)
+		}
+
+		if !bytes.Equal(checksum.Md5[:], hasher.Sum(sum[:0])) {
+			corrupt = append(corrupt, i)
+			fmt.Printf("damn it %s %s\n",
+				hex.EncodeToString(checksum.Md5[:]),
+				hex.EncodeToString(sum),
+			)
+		}
+	}
+
+	return
 }
 
 type FileCheckSums struct {
@@ -55,15 +98,15 @@ type SliceChecksum struct {
 }
 
 // ReadRecoveryFile parses a par2 file.
-func (r *RecoverySet) ReadRecoveryFile(file *os.File) error {
+func (r *RecoverySet) ReadRecoveryFile(file *os.File) (errors []error) {
 	defer r.sort()
 
 	for {
 		err := r.readNextPacket(file)
 		if err == io.EOF {
-			return nil
+			return
 		} else if err != nil {
-			return err
+			errors = append(errors, err)
 		}
 	}
 
@@ -78,6 +121,7 @@ func seekNextPacket(file io.Reader) error {
 
 		read, err := file.Read(b[:1])
 
+		//BUG(smw): if read <= 0 and err == nil, nil is returned
 		if err != nil || read <= 0 {
 			return err
 		}
@@ -165,4 +209,43 @@ func (r *RecoverySet) readNextPacket(file *os.File) (err error) {
 func (r *RecoverySet) sort() {
 	sort.Sort(fileById(r.Files))
 	sort.Sort(ifscByFileId(r.IFSC))
+}
+
+func (r *RecoverySet) fileById(id [16]byte) *File {
+	for _, f := range r.Files {
+		if f.Id == id {
+			return f
+		}
+	}
+
+	return nil
+}
+
+func (r *RecoverySet) ifscByFileId(id [16]byte) *FileCheckSums {
+	for _, c := range r.IFSC {
+		if c.FileId == id {
+			return c
+		}
+	}
+
+	return nil
+}
+
+// IsComplete returns true if all metadata/checksum information has been found.
+func (r *RecoverySet) IsComplete() bool {
+	if len(r.FileIds) == 0 {
+		return false
+	}
+
+	if len(r.Files) != len(r.FileIds) || len(r.IFSC) != len(r.FileIds) {
+		return false
+	}
+
+	for i := range r.FileIds {
+		if r.Files[i].Id != r.FileIds[i] || r.IFSC[i].FileId != r.FileIds[i] {
+			return false
+		}
+	}
+
+	return true
 }

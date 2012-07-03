@@ -23,8 +23,8 @@ func TestParseMainPacket(t *testing.T) {
 	}
 
 	rs := new(RecoverySet)
-	err = rs.ReadRecoveryFile(f)
-	if err != nil {
+	errs := rs.ReadRecoveryFile(f)
+	if len(errs) > 0 {
 		t.Fatal(err)
 	}
 
@@ -53,8 +53,8 @@ func TestParseMainPacket(t *testing.T) {
 }
 
 var ans_FileDescPkt = RecoverySet{
-	Files: []File{
-		File{
+	Files: []*File{
+		&File{
 			Id:      [16]byte{166, 65, 188, 209, 94, 154, 93, 94, 177, 154, 9, 36, 214, 119, 123, 231},
 			Md5:     [16]byte{194, 58, 178, 255, 18, 2, 60, 104, 79, 70, 252, 192, 44, 87, 181, 133},
 			Md5_16k: [16]byte{150, 38, 45, 214, 72, 173, 178, 226, 53, 82, 168, 142, 214, 20, 227, 183},
@@ -73,8 +73,8 @@ func TestParseFileDescPacket(t *testing.T) {
 	}
 
 	rs := new(RecoverySet)
-	err = rs.ReadRecoveryFile(f)
-	if err != nil {
+	errs := rs.ReadRecoveryFile(f)
+	if len(errs) > 0 {
 		t.Fatal(err)
 	}
 
